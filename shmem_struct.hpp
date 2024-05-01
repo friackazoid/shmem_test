@@ -40,67 +40,91 @@ struct TO_R {
 };
 
 
-template <typename FROM, typename TO>
-class SHMEM_ACCESS {
-    public:
-        SHMEM_ACCESS() {
+template <typename TData>
+class ShmemWrite {
+    public: 
+       explicit ShmemWrite( std::string const& shm_name ) : shm_name(shm_name){
             shm_fd = shm_open(shm_name.c_str(), O_CREAT | O_RDWR, 0666);
             if (shm_fd == -1) {
                 perror("shm_open");
                 throw std::runtime_error("shm_open");
             }
 
-            int shm_size = sizeof(DATA); 
+            int shm_size = sizeof(TData); 
             if (ftruncate(shm_fd, shm_size) == -1) {
                 perror("ftruncate");
                 throw std::runtime_error("ftruncate");
             }
 
             // Map the shared memory into the process address space
-            data = static_cast<DATA*>(mmap(0, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0));
+            data = static_cast<TData*>(mmap(0, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0));
             if (data == MAP_FAILED) {
                 perror("mmap");
                 throw std::runtime_error("mmap");
             }
-
-            std::cout << "FROM: " << std::chrono::duration_cast<std::chrono::milliseconds>(data->from.time.time_since_epoch()).count()  << std::endl;
-            std::cout << "TO: " << std::chrono::duration_cast<std::chrono::milliseconds>(data->to.time.time_since_epoch()).count()  << std::endl;
-
         }
 
-        ~SHMEM_ACCESS() {
-            munmap(data, sizeof(DATA));
+        ~ShmemWrite() {
+            munmap(data, sizeof(TData));
             close(shm_fd);
         }
 
-        void write(const FROM& from) {
-            std::memcpy(&data->from, &from, sizeof(FROM));
-            std::cout << "!!!!: " << std::chrono::duration_cast<std::chrono::milliseconds>(data->from.time.time_since_epoch()).count()  << std::endl;
+        void write(const TData& data) {
+            std::memcpy(this->data, &data, sizeof(TData));
+        }
+    private:
+        std::string shm_name{""};
+
+        TData* data;
+        int shm_fd;
+
+};
+
+
+template <typename TData>
+class ShmemRead {
+    public: 
+       explicit ShmemRead( std::string const& shm_name) : shm_name(shm_name){
+            shm_fd = shm_open(shm_name.c_str(), O_RDONLY, 0666);
+            if (shm_fd == -1) {
+                perror("shm_open");
+                throw std::runtime_error("shm_open");
+            }
+
+            // Map the shared memory into the process address space
+            data = static_cast<TData*>(mmap(0, sizeof(TData), PROT_READ , MAP_SHARED, shm_fd, 0));
+            if (data == MAP_FAILED) {
+                perror("mmap");
+                throw std::runtime_error("mmap");
+            }
         }
 
-        void write(const TO& to) {
-            std::memcpy(&data->to, &to, sizeof(TO));
-            std::cout << "!!!!: " << std::chrono::duration_cast<std::chrono::milliseconds>(data->to.time.time_since_epoch()).count()  << std::endl;
+        ~ShmemRead() {
+            munmap(data, sizeof(TData));
+            close(shm_fd);
         }
 
-        TO read() {
-            std::cout << "!!!!: " << std::chrono::duration_cast<std::chrono::milliseconds>(data->to.time.time_since_epoch()).count()  << std::endl;
-            return static_cast<TO>(data->to);
-        }
-
-        FROM read_from() {
-            std::cout << "!!!!: " << std::chrono::duration_cast<std::chrono::milliseconds>(data->from.time.time_since_epoch()).count()  << std::endl;
-            return static_cast<FROM>(data->from);
+        TData read() {
+            return static_cast<TData>(*data);
         }
 
     private:
-        std::string shm_name{"/my_shared_memory"};
+        std::string shm_name{};
 
-        struct DATA {
-            FROM from;
-            TO to;
-        } __attribute__((aligned(4)));
-
-        DATA* data;
+        TData* data;
         int shm_fd;
 };
+
+
+template <typename TData>
+class ShmemAccesor {
+    public:
+        explicit ShmemAccesor(std::string const& shm_name) : reader(shm_name), writer(shm_name) { }
+
+    public:
+
+        ShmemRead <TData> reader;
+        ShmemWrite <TData> writer;
+};
+
+
